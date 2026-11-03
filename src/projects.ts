@@ -69,3 +69,20 @@ export function ticketProject(ticket: Pick<Ticket, 'project'>, settings: Setting
   }
   return project
 }
+
+/** Small read-only command vocabulary; other messages retain their normal task routing. */
+export function projectListPage(text: string): number | undefined {
+  const value = text.trim().replace(/[。.!！]$/, '').toLowerCase()
+  const command = /^\/projects(?:\s+([1-9]\d*))?$/.exec(value)
+  if (command) return Number(command[1] ?? 1)
+  return ['列出当前已配置的所有项目及对应仓库，不创建工单', '列出所有项目', '查看项目列表', '项目列表', 'list projects', 'show projects'].includes(value) ? 1 : undefined
+}
+/** Format real selectable IDs from settings, with bounded pages for the IM reply limit. */
+export function projectListReply(settings: Settings, actor: { source: string; id: string }, page: number): string {
+  const projects = projectsOf(settings).filter(project => projectAllows(settings, project.id, actor.source, actor.id))
+  const pages = Math.max(1, Math.ceil(projects.length / 5))
+  if (page > pages) return `项目列表共 ${pages} 页，请发送 /projects 选择首页。`
+  const rows = projects.slice((page - 1) * 5, page * 5).map(project => `- \`/project ${project.id}\` → \`${project.repository}\``)
+  return [`已配置项目 ${projects.length} 个${pages > 1 ? `（第 ${page}/${pages} 页）` : ''}：`, ...rows,
+    ...(page < pages ? [`下一页：\`/projects ${page + 1}\``] : [])].join('\n')
+}

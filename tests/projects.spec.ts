@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { ProjectsSchema, projectsOf, selectProject, ticketProject } from '../src/projects.ts'
+import { ProjectsSchema, projectListReply, projectsOf, selectProject, ticketProject } from '../src/projects.ts'
+import { checkedImText } from '../src/infra/text.ts'
 import { SettingsSchema, settingsPolicy } from '../src/policy.ts'
 import { Commands } from '../src/infra/commands.ts'
 import { githubProjectContext } from '../src/sources/github-project.ts'
@@ -13,6 +14,7 @@ import { KV } from '../src/kv.ts'
 import { Store } from '../src/app/store.ts'
 import { feishu, startRuntime, type Host } from './fixtures/host.ts'
 import { testDeployment } from './fixtures/deployment.ts'
+import { key } from '../src/core/index.ts'
 import type { Trigger } from '../src/core/index.ts'
 import { githubKind } from '../src/sources/github.ts'
 import { SourceRegistry } from '../src/sources/registry.ts'
@@ -238,4 +240,56 @@ describe('primary project rename', () => {
     await githubProjectContext({ ...ctx, receive, deployment: { ...ctx.deployment, primaryProjectId: 'flaggems-sglang' } }).receive(trigger)
     expect(receive.mock.calls[0]![0]).toMatchObject({ meta: { projectId: 'flaggems-sglang' }, threads: [{ source: 'github', id: '12' }] })
   })
+})
+
+it('answers the exact project-list question with current selectable IDs without invoking the model or creating a ticket', async () => {
+  host = await startRuntime(undefined, [other])
+  const settings = host.runtime.store.settings()
+  settings.sources.github!.config.primaryProjectId = 'flaggems-sglang'
+  host.runtime.store.saveSettings(settings)
+  const query = feishu('100', '列出当前已配置的所有项目及对应仓库，不创建工单。', { chat_type: 'p2p', mentions: [] })
+  await host.runtime.context({ kind: 'feishu', health: ['feishu'] }).receive(query); await host.runtime.idle()
+  const response = host.runtime.store.receipts.get(key('project-list', query.id, '0'))
+  expect(response?.text).toContain('/project flaggems-sglang')
+  expect(response?.text).not.toContain('/project default')
+  expect(response?.text).toContain('/project tools')
+  expect(host.runtime.store.tickets.list()).toHaveLength(0)
+  expect(host.candidates()).toHaveLength(0)
+})
+
+it('handles /projects without waking a subscribed ticket, and deduplicates repeated delivery', async () => {
+  host = await startRuntime(undefined, [other])
+  const accepted = await host.acceptedTicket(feishu('1', '/project default inspect'))
+  const count = host.candidates().length
+  const query = { ...feishu('2', '/projects', { chat_type: 'p2p', mentions: [] }), threads: accepted.trigger.threads }
+  expect(host.runtime.receive(query)).toBe('stored'); await host.runtime.idle()
+  expect(host.runtime.receive(query)).toBe('duplicate')
+  expect(host.runtime.store.triggers.disposition(query.id)?.fanout).toEqual([])
+  expect(host.runtime.store.tickets.list()).toHaveLength(1)
+  expect(host.candidates()).toHaveLength(count)
+  expect(host.runtime.store.receipts.get(key('project-list', query.id, '0'))?.text).toContain('/project default')
+})
+
+it('does not reveal project lists to an unlisted sender and hides projects restricted to another user', async () => {
+  host = await startRuntime(undefined, [{ ...other, feishuUsers: 'ou_bob' }])
+  const query = feishu('1', '/projects', { chat_type: 'p2p', mentions: [] })
+  host.runtime.receive(query); await host.runtime.idle()
+  const answer = host.runtime.store.receipts.get(key('project-list', query.id, '0'))?.text
+  expect(answer).toContain('/project default')
+  expect(answer).not.toContain('/project tools')
+  const stranger = feishu('2', '/projects', { chat_type: 'p2p', mentions: [], sender_id: 'ou_stranger' })
+  host.runtime.receive(stranger); await host.runtime.idle()
+  expect(host.runtime.store.receipts.get(key('project-list', stranger.id, '0'))).toBeUndefined()
+})
+
+it('paginates a larger project list within the IM limit and preserves exact project selectors', () => {
+  const settings = structuredClone(configured)
+  settings.sources.github!.config.projects = Array.from({ length: 12 }, (_, i) => ({ ...other, id: `project-${i}`, repository: `acme/project-${i}` }))
+  const actor = { source: 'feishu', id: 'ou_alice' }
+  const first = projectListReply(settings, actor, 1)
+  const last = projectListReply(settings, actor, 3)
+  expect(() => checkedImText(first)).not.toThrow()
+  expect(() => checkedImText(last)).not.toThrow()
+  expect(first).toContain('/projects 2')
+  expect(last).toContain('/project project-11')
 })

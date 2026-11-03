@@ -610,6 +610,7 @@ const TEXT = {
   'reason.senderNotMember': ['发送者不在这个来源的名单里', 'Sender is not on this Source\'s list'],
   projectFilter: ['项目', 'Project'],
   allProjects: ['全部项目', 'All projects'],
+  'reason.project_list_query': ['项目列表查询（不创建工单）', 'Project listing (no ticket created)'],
   'reason.project_not_allowed': ['发送者不在该项目的允许名单中', 'Sender is not allowed on this project'],
   'reason.source_disabled': ['来源已停用', 'Source disabled'],
   'reason.issue_sender_or_admission_disabled': ['Issue 发起人不在名单或主动接单已关闭', 'Issue sender not on the list, or proactive accept off'],

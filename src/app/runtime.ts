@@ -14,7 +14,7 @@ import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { lockSync } from 'proper-lockfile'
 import { Engine, key, reasonText, type EngineForSettings, type ReceiveResult, type Ticket, type Trigger } from '../core/index.ts'
-import { primaryProjectId, projectsOf, projectAllows, selectProject, ticketProject } from '../projects.ts'
+import { primaryProjectId, projectListPage, projectListReply, projectsOf, projectAllows, selectProject, ticketProject } from '../projects.ts'
 import { githubProjectContext } from '../sources/github-project.ts'
 import { allowedSender, settingsPolicy } from '../policy.ts'
 import { SourceRegistry } from '../sources/registry.ts'
@@ -171,7 +171,7 @@ export class Runtime extends Service implements SourceHost {
         health: this.runtimeHealth, lifetime: this.lifetime, configured: () => setup.configured(), closing: () => this.closing() })
       this.sourceDeps = { store, engine, outbox, commands, sources, get ready() { return runtime.ready },
         get deployment() { return setup.deployment }, configured: () => setup.configured(),
-        get setupProblem() { return setup.problem }, get feishuProblem() { return setup.feishuProblem }, receive: trigger => passes.receive(this.projectTrigger(trigger)) }
+        get setupProblem() { return setup.problem }, get feishuProblem() { return setup.feishuProblem }, receive: trigger => this.receive(trigger) }
       this.toolHost = { context: ctx, engine, store, prompts, sessions, settings: this.settings, assessor, resources,
         get github() { return runtime.context({ kind: 'github', health: ['github'] }) },
         githubFor: ticket => {
@@ -220,7 +220,33 @@ export class Runtime extends Service implements SourceHost {
     const project = selectProject(trigger, projectsOf(this.store.settings()), inherited)
     return { ...trigger, meta: { ...trigger.meta, projectId: project?.id ?? '', repository: project?.repository ?? '', projectDenied: !!project && !projectAllows(this.store.settings(), project.id, trigger.actor.source, trigger.actor.id) } }
   }
-  receive(trigger: Trigger): ReceiveResult { return this.passes.receive(this.projectTrigger(trigger)) }
+  receive(trigger: Trigger): ReceiveResult {
+    const page = projectListPage(trigger.text)
+    const settings = this.store.settings()
+    // Administrative listings must never wake an existing worker or become a new ticket.
+    if (page !== undefined && trigger.source === 'feishu' && trigger.human && trigger.addressed === 'direct' && trigger.channel
+      && allowedSender(settings, trigger.actor) && this.sources.scope(trigger).listened) {
+      if (this.closing()) throw new Error('Orchestrator is stopping')
+      const result = this.store.atomic(() => {
+        if (this.store.triggers.get(trigger.id)) return 'duplicate' as const
+        this.store.triggers.save(trigger)
+        this.store.triggers.saveDisposition(trigger.id, { filtered: { code: 'project_list_query' }, fanout: [], at: now() })
+        for (const ref of trigger.threads) {
+          const key = `${ref.source}:${ref.id}`
+          const thread = this.store.threads.get(key)
+          this.store.threads.save(thread ? { ...thread, lastAt: trigger.at } : {
+            key, ref, createdAt: trigger.at, lastAt: trigger.at, subscriptions: [], correlated: [], pending: [], meta: {},
+          })
+        }
+        this.outbox.send({ id: key('project-list', trigger.id, '0'), channel: trigger.channel!, kind: 'reply',
+          text: projectListReply(settings, trigger.actor, page) })
+        return 'stored' as const
+      })
+      if (result === 'stored') this.passes.request()
+      return result
+    }
+    return this.passes.receive(this.projectTrigger(trigger))
+  }
   idle(): Promise<void> { return this.passes.idle() }
   pump(): Promise<void> { return this.passes.pump() }
   sendReplies(): Promise<void> { return this.outbox.sent() }
