@@ -32,11 +32,11 @@ export function basisFacts(basis: MandateBasis, rule: Snapshot['rule']): { facts
   if (authority) facts.push({ name: 'legacyAuthority', value: authority })
   return { facts, legacy: authority !== undefined }
 }
-export function ticketList(host: ViewHost, stage: 'open' | TicketStage['stage'], offset: number, limit: number) {
+export function ticketList(host: ViewHost, stage: 'open' | TicketStage['stage'], offset: number, limit: number, project?: string) {
   const view = snapshot(host)
   const { store } = view
   const shown = (ticket: Ticket) => stage === 'open' ? liveTicket(ticket) : ticketStage(ticket).stage === stage
-  const tickets = (stage === 'ended' ? store.tickets.list() : store.tickets.open()).filter(shown).sort(newestFirst)
+  const tickets = (stage === 'ended' ? store.tickets.list() : store.tickets.open()).filter(shown).filter(ticket => !project || (ticket.project?.id ?? 'default') === project).sort(newestFirst)
   const result = page(tickets, offset, limit)
   return { ...result, items: result.items.map(ticket => ticketRow(view, ticket)) }
 }

@@ -380,3 +380,10 @@ a.dt-btn, a.dt-btn:hover { text-decoration: none; }
 .dt-admission-slot { display: inline-flex; flex: none; width: 16px; }
 .dt-info-warn { color: var(--dsw-alias-state-warn-primary); }
 .dt-field-segmented { max-width: 240px; }
+
+/* Larger Source records keep labels visible and enough space for repository names and clone paths. */
+.dt-rows-wide .dt-rows-item { position: relative; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); align-items: start; padding: 12px; border: 1px solid var(--dsw-alias-border-l3); border-radius: 8px; }
+.dt-rows-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.dt-rows-field:first-child { grid-column: 1 / -1; padding-right: 36px; }
+.dt-rows-field > span:first-child { font-size: 12px; color: var(--dsw-alias-label-secondary); }
+.dt-rows-wide .dt-rows-item > button { position: absolute; right: 8px; top: 8px; }

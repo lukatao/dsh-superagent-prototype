@@ -14,6 +14,8 @@ import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { lockSync } from 'proper-lockfile'
 import { Engine, key, reasonText, type EngineForSettings, type ReceiveResult, type Ticket, type Trigger } from '../core/index.ts'
+import { projectsOf, projectAllows, selectProject, ticketProject } from '../projects.ts'
+import { githubProjectContext } from '../sources/github-project.ts'
 import { allowedSender, settingsPolicy } from '../policy.ts'
 import { SourceRegistry } from '../sources/registry.ts'
 import { Commands } from '../infra/commands.ts'
@@ -135,7 +137,18 @@ export class Runtime extends Service implements SourceHost {
       const { assessor, executor } = this
       const policy = () => settingsPolicy(store.settings(), sources)
       const engine = this.engine = new Engine({ repo: store, scope: sources, policy, assessor, executor,
-        outbox, prepareTicket: (ticket, outcome) => executor.prepare(ticket, outcome), emit: event => {
+        outbox, prepareTicket: (ticket, outcome) => {
+          const selected = new Set(ticket.origin.triggerIds.map(id => store.triggers.get(id)?.meta.projectId).filter(id => typeof id === 'string' && id))
+          if (selected.size > 1) throw new Error('Requests refer to different projects. Ask for separate threads before accepting.')
+          const project = projectsOf(store.settings()).find(project => selected.has(project.id))
+          if (!project) throw new Error('Project is ambiguous. Ask the requester to specify /project <id> in the original conversation before accepting work.')
+          if (!projectAllows(store.settings(), project.id, ticket.mandate.actor.source, ticket.mandate.actor.id)) throw new Error('Requester is not allowed on this project')
+          const mandate = { ...ticket.mandate, basis: { ...ticket.mandate.basis, scope: { ...ticket.mandate.basis.scope, projectId: project.id, repository: project.repository } } }
+          // The decision and ticket retain the same project restriction, including a clarification of an earlier unresolved request.
+          const decision = store.decisions.get(ticket.decisionId)
+          if (decision) store.decisions.save({ ...decision, mandate })
+          return executor.prepare({ ...ticket, mandate, project }, outcome)
+        }, emit: event => {
           // Notify the main Session only about domain events it did not initiate itself.
           const notice = this.quiet ? undefined : eventNotice(event, id => store.tickets.get(id))
           if (notice) sessions.notify(...notice)
@@ -148,7 +161,7 @@ export class Runtime extends Service implements SourceHost {
           const ended = event.type === 'ticket.ended' ? store.tickets.get(event.data.ticketId) : undefined
           if (ended && setup.configured()) {
             const request = store.triggers.get(ended.origin.triggerId)?.text ?? ''
-            for (const message of pullEndNotices(ended, request, setup.deployment.repository)) outbox.send(message)
+            for (const message of pullEndNotices(ended, request, ticketProject(ended, store.settings()).repository)) outbox.send(message)
           }
         } })
       // Update the `evals` health entry on every pass if an evaluation failed as unavailable within the last hour.
@@ -158,9 +171,13 @@ export class Runtime extends Service implements SourceHost {
         health: this.runtimeHealth, lifetime: this.lifetime, configured: () => setup.configured(), closing: () => this.closing() })
       this.sourceDeps = { store, engine, outbox, commands, sources, get ready() { return runtime.ready },
         get deployment() { return setup.deployment }, configured: () => setup.configured(),
-        get setupProblem() { return setup.problem }, get feishuProblem() { return setup.feishuProblem }, receive: trigger => passes.receive(trigger) }
+        get setupProblem() { return setup.problem }, get feishuProblem() { return setup.feishuProblem }, receive: trigger => passes.receive(this.projectTrigger(trigger)) }
       this.toolHost = { context: ctx, engine, store, prompts, sessions, settings: this.settings, assessor, resources,
         get github() { return runtime.context({ kind: 'github', health: ['github'] }) },
+        githubFor: ticket => {
+          const project = ticketProject(ticket, store.settings())
+          return githubProjectContext(runtime.context({ kind: 'github', health: ['github'] }), project)
+        },
         requestPass: () => { passes.request() }, sendReplies: () => outbox.sent(),
         quietly: run => { this.quiet++; try { return run() } finally { this.quiet-- } } }
       this.ready = this.initialize()
@@ -191,7 +208,19 @@ export class Runtime extends Service implements SourceHost {
     return ticketEnvironment({ deployment, sources, settings: this.store.settings(), ticket, ...trigger ? { trigger } : {} })
   }
   checkSetup(): void { this.setup.check() }
-  receive(trigger: Trigger): ReceiveResult { return this.passes.receive(trigger) }
+  /** Enrich source events before persistence; project selection never trusts an LLM-supplied repository. */
+  private projectTrigger(trigger: Trigger): Trigger {
+    const inherited = trigger.threads.flatMap(ref => {
+      const thread = this.store.threads.get(`${ref.source}:${ref.id}`)
+      return (thread?.subscriptions ?? []).flatMap(id => {
+        const ticket = this.store.tickets.get(id)
+        return ticket ? [ticket.project?.id ?? 'default'] : []
+      })
+    })
+    const project = selectProject(trigger, projectsOf(this.store.settings()), inherited)
+    return { ...trigger, meta: { ...trigger.meta, projectId: project?.id ?? '', repository: project?.repository ?? '', projectDenied: !!project && !projectAllows(this.store.settings(), project.id, trigger.actor.source, trigger.actor.id) } }
+  }
+  receive(trigger: Trigger): ReceiveResult { return this.passes.receive(this.projectTrigger(trigger)) }
   idle(): Promise<void> { return this.passes.idle() }
   pump(): Promise<void> { return this.passes.pump() }
   sendReplies(): Promise<void> { return this.outbox.sent() }

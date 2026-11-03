@@ -110,3 +110,9 @@ A reference list of the terms this and the later documents use, with their Chine
 | Strength | explicit 明确 · inferred 推断 |
 | Assignment | pending 待启动 · running 执行中 · ended 已结束 |
 | Report | progress 进展 · waiting 等待 · ready 就绪 · blocked 受阻 · failed 失败 · dropped 无需处理 |
+
+## Projects
+
+A Project names one configured GitHub repository and the local clone used to prepare its worktrees. The original repository is project `default`. A Ticket belongs to exactly one Project, fixed when accepted; one ticket never executes changes across projects. Source accounts and the Feishu bot may be shared. Project-specific allowed lists only narrow the Source lists.
+
+An explicit `/project <id>` or a repository reference selects a Project; follow-ups inherit an unambiguous thread Project. A missing or ambiguous selection requires clarification before acceptance. Different projects should use separate message threads.

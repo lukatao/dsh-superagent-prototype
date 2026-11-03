@@ -3,7 +3,7 @@
 import { act } from 'react'
 import { expect, it } from 'vitest'
 import { en, zh } from '../src/client/locales.ts'
-import { usePanel, mount, remount, all, find, tab, click, type, text, field, at } from './fixtures/panel.tsx'
+import { usePanel, mount, remount, settle, all, find, tab, click, type, text, field, at } from './fixtures/panel.tsx'
 import { MEMBER, server, ticketSummary, threadSummary } from './fixtures/panel-server.ts'
 
 usePanel()
@@ -221,4 +221,17 @@ it('sends one stop for a double click on Confirm', async () => {
   const confirm = find(zh.confirm)
   await act(async () => { confirm.click(); confirm.click() })
   expect(server.requests.filter(request => request.path === 'tickets/t1/stop')).toHaveLength(1)
+})
+
+it('offers project filtering and names the repository on ticket rows', async () => {
+  server.settings.sources.github!.config.projects = [{ id: 'tools', repository: 'acme/tools', checkout: '/src/tools' }]
+  server.tickets.open = [ticketSummary({ project: { id: 'tools', repository: 'acme/tools' } })]
+  await mount()
+  await click(zh['tab.execution'])
+  const select = field<HTMLSelectElement>(zh.projectFilter)
+  expect([...select.options].map(option => option.value)).toEqual(['', 'default', 'tools'])
+  expect(text()).toContain('acme/tools')
+  await act(async () => { select.value = 'tools'; select.dispatchEvent(new Event('change', { bubbles: true })) })
+  await settle()
+  expect(server.requests.some(request => request.path === 'tickets?state=open&limit=20&project=tools')).toBe(true)
 })

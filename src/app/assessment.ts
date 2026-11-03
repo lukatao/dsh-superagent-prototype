@@ -151,7 +151,7 @@ export class MasterAssessor implements Assessor {
         try {
           const timeout = AbortSignal.timeout(this.host.deployment.admissionContextTimeoutMs.get())
           const signal = AbortSignal.any([this.controller.signal, ...(caller ? [caller] : []), timeout])
-          const commands = this.host.commands.withSignal(signal)
+          const commands = (trigger.meta.repository ? this.host.commands.forRepository(String(trigger.meta.repository)) : this.host.commands).withSignal(signal)
           const context = await admissionContext(thread, commands, this.host.deployment.admissionContextMaxPages.get())
           if (!current()) return
           reads.context = context
@@ -227,7 +227,7 @@ export class MasterAssessor implements Assessor {
       await this.seed(candidate.evalId, trigger, signal)
       const { cache } = this.reads(candidate.evalId, trigger)
       const { snapshots, images, messages, cursors } = cache
-      const commands = this.host.commands.withSignal(AbortSignal.any([this.controller.signal, signal]))
+      const commands = (trigger.meta.repository ? this.host.commands.forRepository(String(trigger.meta.repository)) : this.host.commands).withSignal(AbortSignal.any([this.controller.signal, signal]))
       if (read.resource === 'image') {
         if (read.offset !== 0) throw new Error('Images are not paginated; use offset 0')
         const image = images.get(read.image_id!)
@@ -263,6 +263,7 @@ export class MasterAssessor implements Assessor {
         body = JSON.stringify({ images: references, next_read: next, ...result.body })
       }
       else {
+        if (trigger.meta.projectId === '') throw new Error('Select a project before reading a repository')
         body = await readRepositoryPath(commands, read.path!, read.resource === 'directory' ? 'directory' : 'file')
       }
       snapshots.set(cacheKey, body)

@@ -65,6 +65,16 @@ export class Commands {
   get deployment(): Deployment { return this.resolved() }
   get repository(): string { return this.deployment.repository }
   withSignal(signal?: AbortSignal): Commands { return signal ? new Commands(this.resolved, this.environment, AbortSignal.any([this.signal, signal])) : this }
+  /** Explicit repository scope; unconfigured repositories cannot be selected by model-provided input. */
+  forRepository(repository: string): Commands {
+    const deployment = this.deployment
+    if (repository.toLowerCase() === deployment.configuredRepository?.toLowerCase()) repository = deployment.repository
+    if (repository.toLowerCase() === deployment.repository.toLowerCase()) return this
+    if (![deployment.repository, ...(deployment.projects ?? []).map(project => project.repository)].some(name => name.toLowerCase() === repository.toLowerCase())) {
+      throw new Error(`Repository is not configured: ${repository}`)
+    }
+    return new Commands(() => ({ ...this.resolved(), repository, configuredRepository: undefined }), this.environment, this.signal)
+  }
   async run(program: string, args: string[], cwd?: string): Promise<string> {
     try {
       const { stdout } = await exec(program, args, { cwd, signal: this.signal, timeout: TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024,

@@ -228,9 +228,11 @@ function RowsField({ field, value, saved, onChange, labels, refreshLabels }: {
       onClick={() => setOpen(!open)}>
       {open ? t('collapse') : rows.map(rowName).join(t('listSeparator'))}
     </button>}
-    {(rows.length <= ROWS_SHOWN || open) && <ul className="dt-rows"
+    {(rows.length <= ROWS_SHOWN || open) && <ul className={field.columns.length > 3 ? "dt-rows dt-rows-wide" : "dt-rows"}
       style={{ ['--dt-columns' as string]: field.columns.length }}>{rows.map((row, index) => <li key={index} className="dt-rows-item">
-      {field.columns.map(column => cell(row, index, column))}
+      {field.columns.map(column => field.columns.length > 3
+        ? <label key={column.key} className="dt-rows-field"><span>{localized(t, column.label)}</span>{cell(row, index, column)}</label>
+        : cell(row, index, column))}
       <Button variant="ghost" size="sm" icon={<Icon name="trash" />} aria-label={t('removeRow', { name: labels[row[key.key] ?? '']
         || row[key.key] || label })}
         onClick={() => onChange(rows.filter((_, position) => position !== index))} />

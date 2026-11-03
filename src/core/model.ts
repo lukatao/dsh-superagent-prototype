@@ -275,6 +275,8 @@ export type TicketOutcome = 'completed' | 'merged' | 'closed' | 'dropped' | 'sto
 export interface Attention { id: string; question: string; triggerId?: string }
 /** Ticket aggregate: an authorized work item with its assignments, channels, thread bindings, and inputs. */
 export interface Ticket {
+  /** Fixed at acceptance; legacy tickets use the primary repository. */
+  project?: { id: string; repository: string; prepare: string }
   id: string
   title: string
   decisionId: string

@@ -272,3 +272,29 @@ Setup problems appear on the overview with a link to the fix, in the panel's lan
 | The log says the plugin is incompatible with the running dsh | Install a DeepSeek Harness version within the `engines.dsh` range |
 | The panel shows "Failed to load plugins" after a DeepSeek Harness upgrade | Restart the running instance |
 | Nothing happens after a mention | Check that the author is on the Source's allowed list, the Source is on, and processing is not paused. On GitHub, a mention added by editing an Issue's body is not received; mention the agent in a comment |
+
+## Multiple projects
+
+Keep the primary GitHub repository as project `default`. Clone each additional repository once and add a row under **Sources → GitHub → Additional projects**. Each row has `id`, `repository`, `checkout`, and optional comma-separated `githubUsers` and `feishuUsers`. The ID must be a lowercase slug other than `default`; repository names and IDs must be unique. Every repository needs push access through the same configured agent GitHub CLI. Additional clones use the worktree prepare command automatically; the primary project keeps the existing Execution prepare command.
+
+The GitHub Source config accepts, for example:
+
+```json
+{
+  "repository": "acme/widgets",
+  "cli": "/home/me/.local/bin/gh-agent",
+  "projects": [{
+    "id": "tools",
+    "repository": "acme/tools",
+    "checkout": "/home/me/src/tools",
+    "githubUsers": "alice,bob",
+    "feishuUsers": "ou_alice"
+  }]
+}
+```
+
+Save the complete Source block with its current revision through the Management API. Only the panel/API origin may change projects; saves verify repository access and restart the runtime. The primary Source allowed lists remain necessary. Empty project lists of users inherit them; populated lists narrow them.
+
+In a direct message send `/project tools check the latest commit`. A project may also be identified by its full repository name or its unique repository short name. An unknown selector or several possible targets cannot start a ticket. A later reply in a thread inherits its unique project; prefer separate threads when changing projects. The Execution page filters tickets by project and shows the repository on each ticket.
+
+Back up the SQLite database before upgrade: schema 12 pins existing tickets and queued triggers to `default` in one transaction, leaving old primary-repository IDs intact. Additional repositories namespace GitHub threads, trigger IDs and poll cursors; same-number issues in different repositories remain separate. A ticket keeps its accepted repository and prepare command across restart and settings edits. Referenced project IDs/repositories cannot be removed or retargeted; changing a clone affects only new tickets. Roll back using the backup, since upstream only understands schema 11.

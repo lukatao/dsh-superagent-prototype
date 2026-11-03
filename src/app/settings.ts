@@ -1,5 +1,6 @@
 /** Block-scoped settings validation, optimistic concurrency saves, processing pause control, and source policy synchronization. */
 import type { Context } from '@deepseek-ai/cordis'
+import { projectsOf } from '../projects.ts'
 import { z } from 'zod'
 import { UserError, type EngineForSettings } from '../core/index.ts'
 import { EvalConfigSchema, ExecutorConfigSchema, PolicyConfigSchema, SettingsSchema, policyEffects, policyVersion } from '../policy.ts'
@@ -164,6 +165,15 @@ export class Settings {
       catch (error) { throw new UserError('modelUnavailable', { block, error: error instanceof Error ? error.message : String(error) }) }
     }
     rules.guard?.(current, candidate, origin)
+    if (block === 'source:github') {
+      const projects = projectsOf(candidate)
+      for (const ticket of store.tickets.list()) {
+        const previous = ticket.project ?? projectsOf(current).find(project => project.id === 'default')
+        if (previous && !projects.some(project => project.id === previous.id && project.repository.toLowerCase() === previous.repository.toLowerCase())) {
+          throw new Error(`Project ${previous.id} is referenced by ticket ${ticket.id}; keep its ID and repository unchanged`)
+        }
+      }
+    }
     if (setupChanged(current, candidate)) await this.host.setup.checkAccounts(block, candidate)
     if (stale()) throw new SettingsConflict('Settings changed during the checks. Reload before saving.')
     // Re-read current settings after async checks in case unrelated blocks were saved concurrently.
