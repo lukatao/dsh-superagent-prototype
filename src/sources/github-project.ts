@@ -5,13 +5,14 @@ import type { Key } from '../kv.ts'
 import type { SourceContext } from './host.ts'
 
 export function githubProjectContext(ctx: SourceContext, project?: Pick<Project, 'id' | 'repository'>): SourceContext {
-  const id = project?.id ?? 'default'
-  const repository = id === 'default' ? ctx.deployment.repository : project!.repository
-  const prefix = id === 'default' ? '' : `${repository.toLowerCase()}:`
+  const primaryId = ctx.deployment.primaryProjectId ?? 'default'
+  const id = project?.id ?? primaryId
+  const repository = id === primaryId ? ctx.deployment.repository : project!.repository
+  const prefix = id === primaryId ? '' : `${repository.toLowerCase()}:`
   const full = (thread: string) => thread.startsWith('github:') ? `github:${prefix}${thread.slice(7)}` : thread
   const short = (thread: string) => prefix && thread.startsWith(`github:${prefix}`) ? `github:${thread.slice(7 + prefix.length)}` : thread
   const ref = (value: ThreadRef): ThreadRef => value.source === 'github' ? { ...value, id: prefix + value.id } : value
-  const owns = (ticket: Ticket) => (ticket.project?.id ?? 'default') === id
+  const owns = (ticket: Ticket) => (ticket.project?.id ?? primaryId) === id
   const ticket = (value: Ticket): Ticket => ({ ...value, follows: value.follows?.map(follow => ({ ...follow, thread: short(follow.thread) })) })
   const thread = (value: Thread): Thread => ({ ...value, key: short(value.key), ref: { ...value.ref, id: prefix ? value.ref.id.slice(prefix.length) : value.ref.id } })
   const storage = <V>(name: Key<V>): Key<V> => (prefix ? `project:${repository.toLowerCase()}:${name}` : name) as Key<V>

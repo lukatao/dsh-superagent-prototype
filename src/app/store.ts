@@ -183,6 +183,18 @@ export class Store implements Repositories {
 
   /** Versioned settings snapshots; the current settings are the snapshot of the latest revision. */
   private readonly settingsVersions = new Versions<SettingsVersion>(this, KV.settings.revision, KV.settings.version)
+  /** Rename persisted project references in the caller's settings transaction; source text and immutable settings history stay unchanged. */
+  renameProject(from: string, to: string): void {
+    const paths = {
+      ticket: ['$.project.id', '$.mandate.basis.scope.projectId'],
+      trigger: ['$.meta.projectId'],
+      thread: ['$.meta.projectId', '$.evaluating.basis.scope.projectId'],
+      decision: ['$.mandate.basis.scope.projectId'],
+    }
+    for (const [table, fields] of Object.entries(paths)) for (const field of fields) {
+      this.db.prepare(`UPDATE ${table} SET value = json_set(value, ?, ?) WHERE json_extract(value, ?) = ?`).run(field, to, field, from)
+    }
+  }
   /** Current validated settings. */
   settings(): Settings { return SettingsSchema.parse(this.settingsVersions.current()?.settings ?? {}) }
   /** Revision of one settings block; each configuration page saves against its own block for optimistic concurrency. */

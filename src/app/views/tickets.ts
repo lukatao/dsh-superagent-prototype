@@ -1,4 +1,5 @@
 /** Ticket list, ticket detail, mandate basis formatting, and executor load views. */
+import { primaryProjectId } from '../../projects.ts'
 import { liveTicket, threadKey, ticketStage, type AcceptMode, type AdmissionCell, type MandateBasis, type Ticket,
   type TicketStage } from '../../core/index.ts'
 import { workerSessionId } from '../../executor/dsh.ts'
@@ -36,7 +37,7 @@ export function ticketList(host: ViewHost, stage: 'open' | TicketStage['stage'],
   const view = snapshot(host)
   const { store } = view
   const shown = (ticket: Ticket) => stage === 'open' ? liveTicket(ticket) : ticketStage(ticket).stage === stage
-  const tickets = (stage === 'ended' ? store.tickets.list() : store.tickets.open()).filter(shown).filter(ticket => !project || (ticket.project?.id ?? 'default') === project).sort(newestFirst)
+  const tickets = (stage === 'ended' ? store.tickets.list() : store.tickets.open()).filter(shown).filter(ticket => !project || (ticket.project?.id ?? primaryProjectId(store.settings())) === project).sort(newestFirst)
   const result = page(tickets, offset, limit)
   return { ...result, items: result.items.map(ticket => ticketRow(view, ticket)) }
 }

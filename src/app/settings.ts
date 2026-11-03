@@ -1,6 +1,6 @@
 /** Block-scoped settings validation, optimistic concurrency saves, processing pause control, and source policy synchronization. */
 import type { Context } from '@deepseek-ai/cordis'
-import { projectsOf } from '../projects.ts'
+import { primaryProjectId, projectsOf } from '../projects.ts'
 import { z } from 'zod'
 import { UserError, type EngineForSettings } from '../core/index.ts'
 import { EvalConfigSchema, ExecutorConfigSchema, PolicyConfigSchema, SettingsSchema, policyEffects, policyVersion } from '../policy.ts'
@@ -55,7 +55,7 @@ const BLOCKS: Record<'policy' | 'eval' | 'executor' | 'source', Block> = {
 
 /** Host dependencies used by `Settings`. */
 export interface SettingsHost {
-  readonly store: Pick<Store, 'settings' | 'saveSettings' | 'blockRevision' | 'atomic' | 'tickets' | 'get'>
+  readonly store: Pick<Store, 'settings' | 'saveSettings' | 'blockRevision' | 'atomic' | 'tickets' | 'get' | 'renameProject'>
   readonly sources: SourceRegistry
   /** Notified when a settings save changes the policy version. */
   readonly engine: EngineForSettings
@@ -165,11 +165,14 @@ export class Settings {
       catch (error) { throw new UserError('modelUnavailable', { block, error: error instanceof Error ? error.message : String(error) }) }
     }
     rules.guard?.(current, candidate, origin)
+    const renamedPrimary = block === 'source:github' && primaryProjectId(current) !== primaryProjectId(candidate)
+    if (renamedPrimary && store.tickets.open().length) throw new Error('Finish or stop open tickets before renaming the primary project')
     if (block === 'source:github') {
       const projects = projectsOf(candidate)
       for (const ticket of store.tickets.list()) {
-        const previous = ticket.project ?? projectsOf(current).find(project => project.id === 'default')
-        if (previous && !projects.some(project => project.id === previous.id && project.repository.toLowerCase() === previous.repository.toLowerCase())) {
+        const previous = ticket.project ?? projectsOf(current)[0]
+        const projectId = renamedPrimary && previous?.id === primaryProjectId(current) ? primaryProjectId(candidate) : previous?.id
+        if (previous && !projects.some(project => project.id === projectId && project.repository.toLowerCase() === previous.repository.toLowerCase())) {
           throw new Error(`Project ${previous.id} is referenced by ticket ${ticket.id}; keep its ID and repository unchanged`)
         }
       }
@@ -190,6 +193,10 @@ export class Settings {
     const effects = before === after ? new Map() : policyEffects(store.tickets.open(), old, SettingsSchema.parse(settings), scope)
     const notified = [...effects.keys()]
     store.atomic(() => {
+      if (renamedPrimary) {
+        if (store.tickets.open().length) throw new Error('Finish or stop open tickets before renaming the primary project')
+        store.renameProject(primaryProjectId(old), primaryProjectId(settings))
+      }
       store.saveSettings(SettingsSchema.parse(settings), { source: origin, block, policyVersion: after, policyChanged: before !== after, notified })
       if (origin !== 'tool') sessions.notify(...settingsNotice(block, changedPaths(old, settings)))
       if (before !== after) engine.policyChanged(before, after, effects)

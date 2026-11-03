@@ -19,7 +19,7 @@ export function ExecutionStatus({ filter: current, state, reload }: {
   const [project, setProject] = useState('')
   const { data: settings } = usePoll(() => call('GET settings'), [])
   const config = settings?.sources.find(source => source.id === 'github')?.value.config
-  const projects = [{ id: 'default', repository: String(config?.repository ?? '') },
+  const projects = [{ id: String(config?.primaryProjectId ?? 'default'), repository: String(config?.repository ?? '') },
     ...(Array.isArray(config?.projects) ? config.projects as { id: string; repository: string }[] : [])]
   const { data, error, reload: reloadTickets } = usePoll(() => call('GET tickets', { query: { state: current, limit, ...(project ? { project } : {}) } }), [current, limit, project])
   const { paused, load: { maxWorkers } } = state

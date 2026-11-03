@@ -195,3 +195,47 @@ it('migrates schema 11 tickets once and preserves their pinned repository and wo
   expect(reopened.tickets.get(accepted.ticket.id)?.project).toEqual(pinned)
   reopened.close()
 })
+
+describe('primary project rename', () => {
+  it('migrates historical project references atomically and accepts the new selector', async () => {
+    host = await startRuntime(undefined, [other])
+    const accepted = await host.acceptedTicket(feishu('1', '/project default inspect'))
+    host.runtime.engine.stopTicket(accepted.ticket.id)
+    const block = host.runtime.settings.block('source:github')
+    const value = structuredClone(block.value) as { enabled: boolean; config: Record<string, unknown> }
+    value.config.primaryProjectId = 'flaggems-sglang'
+    await host.runtime.settings.save('source:github', value, block.revision, 'panel')
+    const renamed = host.runtime.store.tickets.get(accepted.ticket.id)!
+    expect(renamed.project).toEqual({ ...accepted.ticket.project, id: 'flaggems-sglang' })
+    expect(renamed.execution).toEqual(accepted.ticket.execution)
+    expect(renamed.mandate.basis.scope?.projectId).toBe('flaggems-sglang')
+    expect(host.runtime.store.triggers.get(accepted.trigger.id)?.meta.projectId).toBe('flaggems-sglang')
+    expect(host.runtime.store.decisions.get(renamed.decisionId)?.mandate?.basis.scope?.projectId).toBe('flaggems-sglang')
+    const projects = projectsOf(host.runtime.store.settings())
+    expect(selectProject(message('/project flaggems-sglang inspect'), projects)?.repository).toBe('acme/widgets')
+    expect(selectProject(message('/project default inspect'), projects)).toBeUndefined()
+    expect(host.runtime.ticketEnvironment(renamed).find(value => value.key === 'DSH_SUPERAGENT_PROJECT_ID')?.value).toBe('flaggems-sglang')
+  })
+  it('refuses renaming while tickets are open without changing settings or records', async () => {
+    host = await startRuntime()
+    const accepted = await host.acceptedTicket(feishu('1', 'inspect'))
+    const block = host.runtime.settings.block('source:github')
+    const value = structuredClone(block.value) as { enabled: boolean; config: Record<string, unknown> }
+    value.config.primaryProjectId = 'flaggems-sglang'
+    await expect(host.runtime.settings.save('source:github', value, block.revision, 'panel')).rejects.toThrow('open tickets')
+    expect(host.runtime.store.tickets.get(accepted.ticket.id)?.project?.id).toBe('default')
+    expect(projectsOf(host.runtime.store.settings())[0]?.id).toBe('default')
+  })
+  it('keeps the primary repository thread and cursor namespace when its ID changes', async () => {
+    host = await startRuntime()
+    const ctx = host.runtime.context(githubKind)
+    const renamed = githubProjectContext({ ...ctx, deployment: { ...ctx.deployment, primaryProjectId: 'flaggems-sglang' } })
+    renamed.state.set(KV.github.cursor(12), 'checkpoint')
+    expect(ctx.state.get(KV.github.cursor(12))).toBe('checkpoint')
+    const trigger = commentTrigger({ id: 1, body: '@agent-bot inspect', user: { login: 'alice' } }, { number: 12, isPr: false }, 'conversation', 'agent-bot')
+    // Inspect the scoped adapter's event before runtime project selection, whose fake setup still uses default.
+    const receive = vi.fn().mockReturnValue('stored')
+    await githubProjectContext({ ...ctx, receive, deployment: { ...ctx.deployment, primaryProjectId: 'flaggems-sglang' } }).receive(trigger)
+    expect(receive.mock.calls[0]![0]).toMatchObject({ meta: { projectId: 'flaggems-sglang' }, threads: [{ source: 'github', id: '12' }] })
+  })
+})

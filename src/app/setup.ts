@@ -14,7 +14,7 @@ export interface SetupHost {
 }
 
 const setupFields = (settings: Settings) =>
-  JSON.stringify(Object.entries(SETUP_FIELDS).map(([id, keys]) => keys.map(key => settings.sources[id]?.config[key] ?? (key === 'projects' ? [] : ''))))
+  JSON.stringify(Object.entries(SETUP_FIELDS).map(([id, keys]) => keys.map(key => settings.sources[id]?.config[key] ?? (key === 'projects' ? [] : key === 'primaryProjectId' ? 'default' : ''))))
 export const setupChanged = (before: Settings, after: Settings): boolean => setupFields(before) !== setupFields(after)
 
 /**

@@ -3,7 +3,7 @@
  * Who may originate work is configured per Source in that Source's own identities; the Policy never maps a person across Sources.
  */
 import { LIMITS } from './limits.ts'
-import { projectAllows } from './projects.ts'
+import { primaryProjectId, projectAllows } from './projects.ts'
 import { z } from 'zod'
 import { ADMISSION_DEFAULTS, type Admission, type AdmissionCell, type AdmissionRow } from './admission.ts'
 import { key, type AssessmentOutcome, type Mandate, type Policy, type PolicyEffect, type SourceScope, type Strength, type Thread, type Ticket,
@@ -115,7 +115,7 @@ export const POLICY_REVISION = 'mandate-v3'
  * Changes to models, concurrency, pause state, or polling intervals do not invalidate existing decisions.
  */
 export function policyVersion(settings: Settings): string {
-  return key(POLICY_REVISION, JSON.stringify({ rules: settings.policy.rules, mode: settings.eval.mode, sources: settings.policy.sources, projects: settings.sources.github?.config.projects ?? [] }))
+  return key(POLICY_REVISION, JSON.stringify({ rules: settings.policy.rules, mode: settings.eval.mode, sources: settings.policy.sources, primaryProjectId: primaryProjectId(settings), projects: settings.sources.github?.config.projects ?? [] }))
 }
 export function allowedSender(settings: Settings, actor: ActorRef): z.infer<typeof AllowedSchema> | undefined {
   return settings.policy.sources[actor.source]?.allowed.find(entry => sameName(entry.id, actor.id))

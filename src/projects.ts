@@ -3,9 +3,12 @@ import { z } from 'zod'
 import type { Settings } from './policy.ts'
 import type { Ticket, Trigger } from './core/index.ts'
 
+export const ProjectIdSchema = z.string().regex(/^[a-z][a-z0-9-]*$/)
+export const primaryProjectId = (settings: Settings): string => String(settings.sources.github?.config.primaryProjectId ?? 'default')
+
 export const RepositorySchema = z.string().trim().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/)
 export const ProjectSchema = z.object({
-  id: z.string().regex(/^[a-z][a-z0-9-]*$/).refine(id => id !== 'default', 'default is reserved for the primary repository'),
+  id: ProjectIdSchema.refine(id => id !== 'default', 'default is reserved for the primary repository'),
   repository: RepositorySchema,
   checkout: z.string().trim().regex(/^\//, 'An absolute path to an existing local clone'),
   githubUsers: z.string().default(''),
@@ -29,7 +32,7 @@ export function projectsOf(settings: Settings): SelectedProject[] {
   const config = settings.sources.github?.config ?? {}
   const repository = typeof config.repository === 'string' ? config.repository : ''
   const additional = ProjectsSchema.parse(config.projects ?? [])
-  return [...repository ? [{ id: 'default', repository, prepare: settings.executor.prepare }] : [],
+  return [...repository ? [{ id: primaryProjectId(settings), repository, prepare: settings.executor.prepare }] : [],
     ...additional.map(project => ({ id: project.id, repository: project.repository, prepare: projectPrepare(project.checkout) }))]
 }
 /** Project-specific lists narrow the Source allowed list; an empty list inherits it. */
@@ -37,7 +40,7 @@ export function projectAllows(settings: Settings, projectId: unknown, source: st
   if (typeof projectId !== 'string') return true // legacy records and unresolved questions still reach the router
   const project = projectsOf(settings).find(project => project.id === projectId)
   if (!project) return false
-  if (projectId === 'default') return true
+  if (projectId === primaryProjectId(settings)) return true
   const config = ProjectsSchema.parse(settings.sources.github?.config.projects ?? []).find(project => project.id === projectId)!
   const list = (source === 'github' ? config.githubUsers : source === 'feishu' ? config.feishuUsers : '').split(/[,\s]+/).filter(Boolean)
   return !list.length || list.some(id => id.toLowerCase() === actor.toLowerCase())
@@ -59,7 +62,7 @@ export function selectProject(trigger: Trigger, projects: SelectedProject[], inh
   return projects.length === 1 ? projects[0] : undefined
 }
 export function ticketProject(ticket: Pick<Ticket, 'project'>, settings: Settings): SelectedProject {
-  const project = ticket.project ?? projectsOf(settings).find(project => project.id === 'default')
+  const project = ticket.project ?? projectsOf(settings)[0]
   if (!project) throw new Error('The ticket has no configured project')
   if (!projectsOf(settings).some(current => current.id === project.id && current.repository.toLowerCase() === project.repository.toLowerCase())) {
     throw new Error(`Project ${project.id} was removed or its repository changed; restore it before continuing this ticket`)

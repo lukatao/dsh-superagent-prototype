@@ -14,7 +14,7 @@ import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { lockSync } from 'proper-lockfile'
 import { Engine, key, reasonText, type EngineForSettings, type ReceiveResult, type Ticket, type Trigger } from '../core/index.ts'
-import { projectsOf, projectAllows, selectProject, ticketProject } from '../projects.ts'
+import { primaryProjectId, projectsOf, projectAllows, selectProject, ticketProject } from '../projects.ts'
 import { githubProjectContext } from '../sources/github-project.ts'
 import { allowedSender, settingsPolicy } from '../policy.ts'
 import { SourceRegistry } from '../sources/registry.ts'
@@ -214,7 +214,7 @@ export class Runtime extends Service implements SourceHost {
       const thread = this.store.threads.get(`${ref.source}:${ref.id}`)
       return (thread?.subscriptions ?? []).flatMap(id => {
         const ticket = this.store.tickets.get(id)
-        return ticket ? [ticket.project?.id ?? 'default'] : []
+        return ticket ? [ticket.project?.id ?? primaryProjectId(this.store.settings())] : []
       })
     })
     const project = selectProject(trigger, projectsOf(this.store.settings()), inherited)

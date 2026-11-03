@@ -2,6 +2,7 @@
  * Migrates a schema 10 database to schema 11 in a single transaction so runtime readers never convert legacy shapes.
  * Databases older than schema 10 are rejected: this version cannot migrate them.
  */
+import { primaryProjectId } from '../projects.ts'
 import { basename } from 'node:path'
 import { z } from 'zod'
 import { isoTime, said, type AcceptMode, type AdmissionCell, type ChannelRef, type Decision, type Execution, type Follow, type MandateBasis,
@@ -620,8 +621,8 @@ export function migrateTo12(store: Store): void {
   const settings = store.settings()
   const repository = settings.sources.github?.config.repository
   if (typeof repository !== 'string' || !repository) return
-  store.db.prepare("UPDATE trigger SET value = json_set(value, '$.meta.projectId', 'default', '$.meta.repository', ?) WHERE json_extract(value, '$.meta.projectId') IS NULL").run(repository)
+  store.db.prepare("UPDATE trigger SET value = json_set(value, '$.meta.projectId', ?, '$.meta.repository', ?) WHERE json_extract(value, '$.meta.projectId') IS NULL").run(primaryProjectId(settings), repository)
   for (const ticket of store.tickets.list()) {
-    if (!ticket.project) store.tickets.save({ ...ticket, project: { id: 'default', repository, prepare: settings.executor.prepare } })
+    if (!ticket.project) store.tickets.save({ ...ticket, project: { id: primaryProjectId(settings), repository, prepare: settings.executor.prepare } })
   }
 }

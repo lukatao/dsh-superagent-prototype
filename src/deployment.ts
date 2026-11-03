@@ -1,5 +1,5 @@
 /** Plugin configuration and startup verification for repository access and agent CLI identities. */
-import { ProjectsSchema, type Project } from './projects.ts'
+import { ProjectsSchema, ProjectIdSchema, type Project } from './projects.ts'
 import { LIMITS } from './limits.ts'
 import { accessSync, constants, statSync } from 'node:fs'
 import { delimiter, isAbsolute, join } from 'node:path'
@@ -44,6 +44,7 @@ export function machineOf(config: DeploymentConfig): Machine {
 }
 
 export const GithubAccountsSchema = z.object({
+  primaryProjectId: ProjectIdSchema.default('default'),
   repository: z.string().trim().regex(/^([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)?$/, 'owner/name').default(''),
   cli: z.string().trim().default(''),
   projects: ProjectsSchema,
@@ -56,6 +57,7 @@ export interface Deployment extends Machine {
   repository: string
   /** Original primary name, retained when GitHub canonicalizes a renamed repository. */
   configuredRepository?: string
+  primaryProjectId?: string
   projects?: Project[]
   github: { cli: string; login: string; noreply: string }
   feishu?: FeishuBot
@@ -108,6 +110,7 @@ export async function resolveDeployment(machine: Machine, github: unknown, probe
   const repository = access.name
   if (access.push !== true) throw new SetupError('repositoryReadOnly', { account: agent.login, repository })
   for (const project of accounts.projects) {
+    if (project.id === accounts.primaryProjectId) throw new Error('A project duplicates the primary project ID')
     if (project.repository.toLowerCase() === repository.toLowerCase()) throw new Error('A project duplicates the primary repository')
     const access = await probe([cli, 'api', `repos/${project.repository}`, '--jq', '{name: .full_name, push: .permissions.push}']).catch((error: unknown) => { throw new SetupError('repositoryUnreadable', { account: agent.login, repository: project.repository, output: reason(error) }) })
     const checked = parsed(RepositoryAccess, access)
@@ -115,7 +118,7 @@ export async function resolveDeployment(machine: Machine, github: unknown, probe
     if (checked.push !== true) throw new SetupError('repositoryReadOnly', { account: agent.login, repository: project.repository })
     if (checked.name.toLowerCase() !== project.repository.toLowerCase()) throw new Error(`Use canonical repository name ${checked.name} for project ${project.id}`)
   }
-  return { ...machine, repository, configuredRepository: accounts.repository, projects: accounts.projects, github: { cli, login: agent.login, noreply: `${agent.id}+${agent.login}@users.noreply.github.com` } }
+  return { ...machine, repository, configuredRepository: accounts.repository, primaryProjectId: accounts.primaryProjectId, projects: accounts.projects, github: { cli, login: agent.login, noreply: `${agent.id}+${agent.login}@users.noreply.github.com` } }
 }
 
 const AuthStatus = z.object({ appId: z.string().regex(/^cli_[A-Za-z0-9]+$/), brand: z.enum(['feishu', 'lark']).default('feishu'), identities: z.object({ bot: z.object({ status: z.string() }) }) })

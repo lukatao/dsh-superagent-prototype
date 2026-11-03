@@ -42,8 +42,9 @@ export const githubKind: SourceKind<GithubConfig> = {
   description: { zh: '智能体的 GitHub 账号；接收仓库里发给它的通知、已订阅 Issue 与 PR 的讨论、CI 状态变化和 PR 合并关闭。', en: 'The agent\'s GitHub accounts; receives notifications to it in the repository, discussion on subscribed Issues and PRs, CI changes, and PR merge or close.' },
   schema: GithubConfigSchema,
   fields: [
+    { key: 'primaryProjectId', type: 'text', pattern: '[a-z][a-z0-9-]*', label: { zh: '主项目 ID', en: 'Primary project ID' }, hint: { zh: '可在没有未结束工单时改名；历史记录会同步迁移，仓库和工作目录不变。', en: 'Rename when no tickets are open. Historical project references migrate without changing repositories or worktrees.' } },
     { key: 'projects', type: 'rows', label: { zh: '其他项目', en: 'Additional projects' },
-      hint: { zh: '主仓库的项目 ID 是 default。私聊用 /project <ID> 选择项目；每个项目使用现有的本地克隆。账号名单留空继承来源名单，填写后进一步限制。', en: 'The primary repository is project default. Use /project <ID> in a direct message. Each checkout is an existing local clone. Empty account lists inherit the Source list; populated lists narrow it.' },
+      hint: { zh: '主仓库使用上方的主项目 ID。私聊用 /project <ID> 选择项目；每个项目使用现有的本地克隆。账号名单留空继承来源名单，填写后进一步限制。', en: 'The primary repository uses the Primary project ID above. Use /project <ID> in a direct message. Each checkout is an existing local clone. Empty account lists inherit the Source list; populated lists narrow it.' },
       columns: [
         { key: 'id', type: 'text', label: { zh: '项目 ID', en: 'Project ID' }, pattern: '[a-z][a-z0-9-]*' },
         { key: 'repository', type: 'text', label: { zh: '仓库', en: 'Repository' } },
@@ -111,7 +112,7 @@ export const githubKind: SourceKind<GithubConfig> = {
     ],
     values: ({ deployment, trigger }) => {
       const number = trigger?.threads[0]?.source === SOURCE ? Number(trigger.meta.number) || 0 : 0
-      return { DSH_SUPERAGENT_PROJECTS: JSON.stringify([{ id: 'default', repository: deployment.repository }, ...(deployment.projects ?? []).map(project => ({ id: project.id, repository: project.repository }))]), DSH_SUPERAGENT_PROJECT_ID: String(trigger?.meta.projectId ?? 'default'), DSH_SUPERAGENT_GITHUB_REPOSITORY: deployment.repository, DSH_SUPERAGENT_GITHUB_ACCOUNT: deployment.github.login, DSH_SUPERAGENT_GITHUB_COMMIT_EMAIL: deployment.github.noreply, DSH_SUPERAGENT_GITHUB_NUMBER: number ? String(number) : '',
+      return { DSH_SUPERAGENT_PROJECTS: JSON.stringify([{ id: deployment.primaryProjectId ?? 'default', repository: deployment.repository }, ...(deployment.projects ?? []).map(project => ({ id: project.id, repository: project.repository }))]), DSH_SUPERAGENT_PROJECT_ID: String(trigger?.meta.projectId ?? deployment.primaryProjectId ?? 'default'), DSH_SUPERAGENT_GITHUB_REPOSITORY: deployment.repository, DSH_SUPERAGENT_GITHUB_ACCOUNT: deployment.github.login, DSH_SUPERAGENT_GITHUB_COMMIT_EMAIL: deployment.github.noreply, DSH_SUPERAGENT_GITHUB_NUMBER: number ? String(number) : '',
         DSH_SUPERAGENT_GITHUB_PR_HEAD: number && trigger?.meta.isPr === true ? `refs/pull/${number}/head` : '' }
     },
   },
