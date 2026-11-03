@@ -2,6 +2,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { key, type Thread } from '../core/index.ts'
 import { sameName } from '../infra/text.ts'
+import { githubProjectContext } from './github-project.ts'
 import { GithubAccountsSchema } from '../deployment.ts'
 import { CliError, validItems, type Tally } from '../infra/commands.ts'
 import { ciCounts, ciFact, ciFailures, ciSummary, githubThreadContext, pullChecks } from './github-read.ts'
@@ -41,6 +42,15 @@ export const githubKind: SourceKind<GithubConfig> = {
   description: { zh: '智能体的 GitHub 账号；接收仓库里发给它的通知、已订阅 Issue 与 PR 的讨论、CI 状态变化和 PR 合并关闭。', en: 'The agent\'s GitHub accounts; receives notifications to it in the repository, discussion on subscribed Issues and PRs, CI changes, and PR merge or close.' },
   schema: GithubConfigSchema,
   fields: [
+    { key: 'projects', type: 'rows', label: { zh: '其他项目', en: 'Additional projects' },
+      hint: { zh: '主仓库的项目 ID 是 default。私聊用 /project <ID> 选择项目；每个项目使用现有的本地克隆。账号名单留空继承来源名单，填写后进一步限制。', en: 'The primary repository is project default. Use /project <ID> in a direct message. Each checkout is an existing local clone. Empty account lists inherit the Source list; populated lists narrow it.' },
+      columns: [
+        { key: 'id', type: 'text', label: { zh: '项目 ID', en: 'Project ID' }, pattern: '[a-z][a-z0-9-]*' },
+        { key: 'repository', type: 'text', label: { zh: '仓库', en: 'Repository' } },
+        { key: 'checkout', type: 'text', label: { zh: '本地克隆绝对路径', en: 'Absolute clone path' } },
+        { key: 'githubUsers', type: 'text', optional: true, label: { zh: 'GitHub 账号（逗号分隔）', en: 'GitHub logins (comma separated)' } },
+        { key: 'feishuUsers', type: 'text', optional: true, label: { zh: '飞书 open_id（逗号分隔）', en: 'Feishu open_ids (comma separated)' } },
+      ] },
     { key: 'repository', type: 'text', pattern: '[A-Za-z0-9_.\\-]+/[A-Za-z0-9_.\\-]+', label: { zh: '监听的仓库', en: 'Repository' },
       hint: { zh: '写作 owner/name。这个来源接收这个仓库的通知和讨论；保存时检查智能体账号能否推送到它，然后重启 dsh-superagent。', en: 'Written owner/name. This Source receives the repository\'s notifications and discussion; saving checks that the agent account can push to it, then restarts dsh-superagent.' } },
     { key: 'cli', type: 'text', label: { zh: '智能体的 GitHub CLI', en: 'Agent GitHub CLI' },
@@ -91,6 +101,8 @@ export const githubKind: SourceKind<GithubConfig> = {
   },
   environment: {
     variables: [
+      { key: 'DSH_SUPERAGENT_PROJECTS', description: { zh: '已配置的项目；目标不明确时询问，不猜测仓库。工单的项目不能更改。', en: 'Configured projects. If the target is ambiguous, ask the requester to specify /project <id> in the original conversation; do not accept until resolved. A ticket never switches projects.' } },
+      { key: 'DSH_SUPERAGENT_PROJECT_ID', description: { zh: '这个工单所属项目', en: 'This ticket project ID' } },
       { key: 'DSH_SUPERAGENT_GITHUB_REPOSITORY', description: { zh: '这个来源监听的仓库，owner/name。智能体在这里开的 PR，分支最后一段是 DSH_SUPERAGENT_NAME 时（例如 agent/$DSH_SUPERAGENT_NAME）会关联到工单', en: 'The repository this Source watches, as owner/name. A PR the agent opens here from a branch whose last path segment is DSH_SUPERAGENT_NAME (for example agent/$DSH_SUPERAGENT_NAME) binds to the ticket' } },
       { key: 'DSH_SUPERAGENT_GITHUB_ACCOUNT', description: { zh: '智能体的 GitHub 账号；gh 以它登录，除自动合并外的 GitHub 操作都用 gh，不用其他账号或凭据', en: 'The agent\'s GitHub account. gh is signed in to it; use gh for every GitHub operation except auto-merge, and never another account or credential' } },
       { key: 'DSH_SUPERAGENT_GITHUB_COMMIT_EMAIL', description: { zh: '智能体账号的提交邮箱。这里的 git 没有身份：按提示词写明的作者提交，没有写明时用智能体账号和这个邮箱', en: 'Commit email of the agent\'s account. git has no identity here: commit as the author these instructions name, or as the agent\'s account with this email when they name none' } },
@@ -99,7 +111,7 @@ export const githubKind: SourceKind<GithubConfig> = {
     ],
     values: ({ deployment, trigger }) => {
       const number = trigger?.threads[0]?.source === SOURCE ? Number(trigger.meta.number) || 0 : 0
-      return { DSH_SUPERAGENT_GITHUB_REPOSITORY: deployment.repository, DSH_SUPERAGENT_GITHUB_ACCOUNT: deployment.github.login, DSH_SUPERAGENT_GITHUB_COMMIT_EMAIL: deployment.github.noreply, DSH_SUPERAGENT_GITHUB_NUMBER: number ? String(number) : '',
+      return { DSH_SUPERAGENT_PROJECTS: JSON.stringify([{ id: 'default', repository: deployment.repository }, ...(deployment.projects ?? []).map(project => ({ id: project.id, repository: project.repository }))]), DSH_SUPERAGENT_PROJECT_ID: String(trigger?.meta.projectId ?? 'default'), DSH_SUPERAGENT_GITHUB_REPOSITORY: deployment.repository, DSH_SUPERAGENT_GITHUB_ACCOUNT: deployment.github.login, DSH_SUPERAGENT_GITHUB_COMMIT_EMAIL: deployment.github.noreply, DSH_SUPERAGENT_GITHUB_NUMBER: number ? String(number) : '',
         DSH_SUPERAGENT_GITHUB_PR_HEAD: number && trigger?.meta.isPr === true ? `refs/pull/${number}/head` : '' }
     },
   },
@@ -133,7 +145,14 @@ async function watch(ctx: SourceContext, signal: AbortSignal): Promise<void> {
   while (!signal.aborted) {
     const config = ctx.config<GithubConfig>(SOURCE)
     try {
-      if (config) interval = await pollRound(ctx, signal)
+      if (config) {
+        const failures: string[] = []
+        for (const project of [undefined, ...(ctx.deployment.projects ?? [])]) {
+          try { interval = Math.max(interval, await pollRound(githubProjectContext(ctx, project), signal)) }
+          catch (error) { failures.push(`${project?.repository ?? ctx.deployment.repository}: ${String(error)}`) }
+        }
+        if (failures.length) throw new Error(failures.join('; '))
+      }
       else ctx.report('github', health('paused', 'sourceOff'))
       failures = 0
     } catch (error) {

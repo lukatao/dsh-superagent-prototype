@@ -42,6 +42,7 @@ export class Intake extends EnginePart {
         const followed = !!thread.context?.includes(ticketId)
         const resumes = trigger.human && ticket?.ended?.by !== 'human' && !followed
         if (!ticket || (!liveTicket(ticket) && !resumes)) continue
+        if (ticket.project && trigger.meta.projectId !== undefined && trigger.meta.projectId !== ticket.project.id) continue
         reached.set(ticketId, { ticket, context: followed && (reached.get(ticketId)?.context ?? true) })
       }
       this.repo.threads.save(thread)

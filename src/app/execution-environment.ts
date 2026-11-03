@@ -1,4 +1,5 @@
 /** Execution environment variables exposed to prepare commands and documented in worker Session instructions; never contains credentials. */
+import { ticketProject } from '../projects.ts'
 import { join } from 'node:path'
 import type { Ticket, Trigger } from '../core/index.ts'
 import type { Deployment } from '../deployment.ts'
@@ -39,7 +40,10 @@ export function environmentOf(input: { deployment: Deployment; sources: SourceRe
 export function ticketEnvironment(input: { deployment: Deployment; sources: SourceRegistry; settings: Settings; ticket: Ticket; trigger?: Trigger }) {
   const { ticket, trigger, ...rest } = input
   const values = { id: ticket.id, name: ticket.execution?.name ?? '', directory: ticket.execution?.directory ?? '' }
-  return environmentOf({ ...rest, ticket: values, ...trigger ? { trigger } : {} })
+  const project = ticket.project ? ticketProject(ticket, rest.settings) : { id: 'default', repository: rest.deployment.repository }
+  return environmentOf({ ...rest, ticket: values, ...trigger ? { trigger } : {} }).map(variable => ({ ...variable,
+    value: variable.key === 'DSH_SUPERAGENT_GITHUB_REPOSITORY' ? project.repository
+      : variable.key === 'DSH_SUPERAGENT_PROJECT_ID' ? project.id : variable.value }))
 }
 export function environmentLines(variables: Variable[]): string {
   return variables.map(variable => `- ${variable.key} = ${JSON.stringify(variable.value)}: ${variable.description.en}.`).join('\n')

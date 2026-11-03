@@ -16,7 +16,12 @@ export function ExecutionStatus({ filter: current, state, reload }: {
 }) {
   const { t, call, navigate } = usePanel()
   const [limit, setLimit] = useState(20)
-  const { data, error, reload: reloadTickets } = usePoll(() => call('GET tickets', { query: { state: current, limit } }), [current, limit])
+  const [project, setProject] = useState('')
+  const { data: settings } = usePoll(() => call('GET settings'), [])
+  const config = settings?.sources.find(source => source.id === 'github')?.value.config
+  const projects = [{ id: 'default', repository: String(config?.repository ?? '') },
+    ...(Array.isArray(config?.projects) ? config.projects as { id: string; repository: string }[] : [])]
+  const { data, error, reload: reloadTickets } = usePoll(() => call('GET tickets', { query: { state: current, limit, ...(project ? { project } : {}) } }), [current, limit, project])
   const { paused, load: { maxWorkers } } = state
   // Pausing uses its own block revision so toggling pause does not invalidate an open Execution settings draft.
   const pause = async () => { await call('POST executor/pause', { body: { paused: !paused } }); await reload() }
@@ -37,6 +42,10 @@ export function ExecutionStatus({ filter: current, state, reload }: {
         onConfirm={pause} />
     </div>
     <div className="dt-filters">
+      {projects.length > 1 && <select className="dt-select" aria-label={t('projectFilter')} style={{ width: 'auto', maxWidth: '100%' }} value={project} onChange={event => { setProject(event.target.value); setLimit(20) }}>
+        <option value="">{t('allProjects')}</option>
+        {projects.map(project => <option key={project.id} value={project.id}>{project.id} · {project.repository}</option>)}
+      </select>}
       {TICKET_FILTERS.map(value => <Pill key={value} active={current === value}
         onClick={() => { setLimit(20); navigate({ page: 'execution', query: value === 'open' ? {} : { filter: value } },
           true) }}>{t(`ticketFilter.${value}`)}</Pill>)}

@@ -102,6 +102,20 @@ export class SourceRegistry implements SourceScope {
     return link ?? { url: '', label: { zh: channel.source, en: channel.source } }
   }
   find(query: string): { threads: string[]; terms: string[] } {
+    const github = this.settings().sources.github?.config
+    if (Array.isArray(github?.projects) && github.projects.length) {
+      const address = /github\.com\/([^/]+\/[^/]+)\/(?:pull|issues)\/(\d+)/i.exec(query)
+      if (address) {
+        const repository = address[1]!.toLowerCase()
+        const primary = String(github.repository ?? '').toLowerCase()
+        const configured = github.projects.some(project => !!project && typeof project === 'object' && 'repository' in project && String(project.repository).toLowerCase() === repository)
+        return { threads: repository === primary ? [`github:${address[2]}`] : configured ? [`github:${repository}:${address[2]}`] : [], terms: [] }
+      }
+      if (/^#?\d+$/.test(query.trim())) {
+        const number = query.trim().replace(/^#/, '')
+        return { threads: [`github:${number}`, ...github.projects.map(project => `github:${String((project as { repository: string }).repository).toLowerCase()}:${number}`)], terms: [] }
+      }
+    }
     const found = [...this.kinds.values()].flatMap(kind => kind.find ? [kind.find(query)] : [])
     return { threads: [...new Set(found.flatMap(item => item.threads))], terms: [...new Set(found.flatMap(item => item.terms))] }
   }
@@ -122,6 +136,7 @@ export class SourceRegistry implements SourceScope {
     }
   }
   scope(input: { source: string; meta: Record<string, unknown> }, settings = this.settings()): ScopeResult {
+    if (input.meta.projectDenied === true) return { listened: false, reason: 'project_not_allowed' }
     const kind = this.kinds.get(input.source)
     const stored = settings.sources[input.source]
     // Without its kind plugin the stored scope cannot be evaluated, so a configured Source whose plugin is missing listens to nothing.

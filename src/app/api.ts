@@ -30,7 +30,7 @@ export interface Api {
   'POST triggers/:id/requeue': { response: { queued: boolean } }
   'GET decisions': { query?: Paged & { kind?: string; window?: '24h' }; response: DecisionListView }
   'POST decisions/:id/dismiss': { response: { dismissed: true } }
-  'GET tickets': { query?: Paged & { state?: TicketFilter }; response: TicketListView }
+  'GET tickets': { query?: Paged & { state?: TicketFilter; project?: string }; response: TicketListView }
   'GET tickets/:id': { response: TicketPageView }
   'POST tickets/:id/retry': { response: { retried: true } }
   'POST tickets/:id/stop': { response: { stopped: true } }

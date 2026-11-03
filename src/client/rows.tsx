@@ -19,7 +19,7 @@ export function TicketLine({ ticket, question, onChanged, context }: {
     <div className="dt-ticket-stage"><StageMark state={status.dot} icon={status.icon} label={status.label} /></div>
     <div className="dt-ticket-body">
       <div className="dt-row-title"><button type="button" className="dt-open" onClick={() => navigate({ page: 'execution',
-        id: ticket.id })}>{ticket.title}</button></div>
+        id: ticket.id })}>{ticket.title}</button>{ticket.project && <span className="dt-muted"> · {ticket.project.repository}</span>}</div>
       <div className="dt-row-meta dt-ticket-meta">
         {ticket.threads.map(thread => <ThreadChip key={thread.key} thread={thread} />)}
         {context && <ContextTag />}

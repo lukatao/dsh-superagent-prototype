@@ -17,7 +17,7 @@ import type { SettingsVersion, Store } from './store.ts'
 import { Versions } from './versions.ts'
 import { KV, type Key } from '../kv.ts'
 
-export const SCHEMA_VERSION = 11
+export const SCHEMA_VERSION = 12
 /** The oldest database schema version this build can open and migrate directly. */
 export const OLDEST_SCHEMA = 10
 /** Returns an error message explaining why `version` cannot be opened: older schemas need a new state directory. */
@@ -612,5 +612,16 @@ function assessmentTriggers(store: Store): void {
     if (!evaluation || evaluation.delivered || !evaluation.triggerIds[0]) continue
     store.db.prepare(`INSERT INTO effect (kind, key, value, seq, due, since) VALUES ('assessment', ?, ?, ?, ?, ?) ON CONFLICT(kind, key) DO NOTHING`)
       .run(evaluation.id, JSON.stringify({ triggerId: evaluation.triggerIds[0] }), ++seq, Date.now(), new Date().toISOString())
+  }
+}
+
+/** Pin legacy tickets to their existing primary repository without rewriting their thread identities or cursors. */
+export function migrateTo12(store: Store): void {
+  const settings = store.settings()
+  const repository = settings.sources.github?.config.repository
+  if (typeof repository !== 'string' || !repository) return
+  store.db.prepare("UPDATE trigger SET value = json_set(value, '$.meta.projectId', 'default', '$.meta.repository', ?) WHERE json_extract(value, '$.meta.projectId') IS NULL").run(repository)
+  for (const ticket of store.tickets.list()) {
+    if (!ticket.project) store.tickets.save({ ...ticket, project: { id: 'default', repository, prepare: settings.executor.prepare } })
   }
 }
